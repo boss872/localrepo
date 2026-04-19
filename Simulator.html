@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fourier Full-Chain Analysis - Signal Processor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        body { background-color: #020617; color: #f8fafc; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        canvas { background: #070b14; border-radius: 12px; width: 100%; height: auto; border: 1px solid #1e293b; }
+        .control-panel { background: #0f172a; border-radius: 16px; padding: 24px; border: 1px solid #334155; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); position: sticky; top: 2rem; }
+        .slider { -webkit-appearance: none; width: 100%; height: 4px; border-radius: 2px; background: #334155; outline: none; }
+        .slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #38bdf8; cursor: pointer; border: 2px solid white; }
+        
+        .mode-btn { transition: all 0.2s; border: 1px solid #334155; font-size: 0.7rem; font-weight: 800; padding: 0.6rem; border-radius: 0.5rem; background: #1e2937; color: #94a3b8; }
+        .mode-btn.active { background: #38bdf8; color: #020617; border-color: #7dd3fc; box-shadow: 0 0 15px rgba(56, 189, 248, 0.4); }
+
+        .data-table th { color: #64748b; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 12px; border-bottom: 1px solid #1e293b; }
+        .data-table td { padding: 10px 12px; font-size: 0.75rem; font-family: 'JetBrains Mono', monospace; border-bottom: 1px solid #0f172a; }
+        
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #020617; }
+        ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+
+        .stage-label {
+            position: absolute; left: 1rem; z-index: 10; font-weight: 800; font-size: 9px;
+            letter-spacing: 0.1em; text-transform: uppercase; padding: 4px 10px; border-radius: 4px;
+            transition: opacity 0.3s ease;
+        }
+
+        .stage-box {
+            position: absolute; width: 100%; height: 33.33%; border-left: 2px solid transparent;
+            pointer-events: none; transition: background 0.3s;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-black text-white mb-1 tracking-tight">Signal Processor: \(a_n\) & \(b_n\) Full-Chain Analysis</h1>
+            <p class="text-slate-500 text-xs uppercase tracking-widest font-bold">Source → Encoder (Analysis) → Decoder (Synthesis)</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Sidebar -->
+            <div class="lg:col-span-1">
+                <div class="control-panel space-y-5">
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-3">Processing Phase</label>
+                        <div class="grid grid-cols-1 gap-2">
+                            <button onclick="setMode('forward')" id="btn-forward" class="mode-btn">STAGE 1 & 2: ENCODER</button>
+                            <button onclick="setMode('backward')" id="btn-backward" class="mode-btn">STAGE 3: DECODER</button>
+                            <button onclick="setMode('both')" id="btn-both" class="mode-btn active">COMPLETE CYCLE</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Harmonics (\(n\))</label>
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-sky-400 font-mono text-xs">Resolution:</span>
+                            <span id="n-val" class="text-white font-bold bg-slate-800 px-2 py-0.5 rounded text-xs">7</span>
+                        </div>
+                        <input type="range" min="1" max="25" value="7" class="slider" id="n-slider">
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-800">
+                        <label class="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-3">Symmetry Components</label>
+                        <div class="space-y-2">
+                            <label class="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-slate-800">
+                                <span class="text-xs text-slate-300 font-medium">\(a_n\) (Even/Cosine)</span>
+                                <input type="checkbox" id="check-cos" onchange="updateComps()" class="w-4 h-4 accent-sky-500">
+                            </label>
+                            <label class="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-slate-800">
+                                <span class="text-xs text-slate-300 font-medium">\(b_n\) (Odd/Sine)</span>
+                                <input type="checkbox" id="check-sin" onchange="updateComps()" checked class="w-4 h-4 accent-sky-500">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="bg-black/40 p-4 rounded-xl border border-slate-800">
+                        <h4 class="text-[9px] font-black text-slate-500 uppercase mb-2">Signal Diagnostics</h4>
+                        <div id="diagnostics" class="space-y-1 text-[10px] font-mono text-sky-400">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+
+                    <button onclick="toggleAnim()" id="play-btn" class="w-full py-3 bg-white text-slate-900 rounded-xl font-black text-xs uppercase tracking-widest transition-all active:scale-95">
+                        Pause Engine
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Stage -->
+            <div class="lg:col-span-3 space-y-6">
+                <div class="relative">
+                    <!-- Visual Blocks for Stages -->
+                    <div id="box-source" class="stage-box top-0" style="border-left-color: #10b981;"></div>
+                    <div id="box-encoder" class="stage-box top-[33.33%]" style="border-left-color: #38bdf8;"></div>
+                    <div id="box-decoder" class="stage-box top-[66.66%]" style="border-left-color: #fbbf24;"></div>
+
+                    <div id="lbl-source" class="stage-label top-4 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Stage 1: Input Signal (Periodic Truth)</div>
+                    <div id="lbl-encoder" class="stage-label top-[37%] bg-sky-500/10 text-sky-400 border border-sky-500/20">Stage 2: Encoder (Analysis - breaking down)</div>
+                    <div id="lbl-decoder" class="stage-label bottom-[29%] bg-amber-500/10 text-amber-400 border border-amber-500/20">Stage 3: Decoder (Synthesis - reconstructing)</div>
+                    <canvas id="stage" height="850"></canvas>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                        <p class="text-[9px] font-black text-slate-500 uppercase mb-3">Fourier Series Equation</p>
+                        <div class="text-sm text-sky-100 font-mono">
+                            \[ f(x) = \frac{a_0}{2} + \sum_{n=1}^{\infty} (a_n \cos nx + b_n \sin nx) \]
+                        </div>
+                    </div>
+                    <div class="bg-slate-900/50 p-5 rounded-xl border border-slate-800">
+                        <p class="text-[9px] font-black text-slate-500 uppercase mb-2">Processing Status</p>
+                        <div class="flex flex-col gap-2">
+                            <div class="flex items-center justify-between">
+                                <span id="status-desc" class="text-[10px] text-sky-400 font-bold uppercase tracking-wider">Syncing Flow...</span>
+                                <span id="error-pct" class="text-[10px] text-slate-500 font-mono">Convergence: 0.0%</span>
+                            </div>
+                            <div class="h-1.5 bg-slate-800 w-full rounded-full overflow-hidden">
+                                <div id="progress-fill" class="h-full bg-sky-500 transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Data Table Section -->
+                <div class="bg-slate-900/30 rounded-2xl border border-slate-800 overflow-hidden">
+                    <div class="p-4 bg-slate-900/80 border-b border-slate-800 flex justify-between items-center">
+                        <h3 class="text-[11px] font-black text-slate-300 uppercase tracking-widest">Harmonic Amplitude Decomposition Table</h3>
+                        <span class="text-[9px] text-slate-500 italic">Live Coefficients (\(a_n, b_n\))</span>
+                    </div>
+                    <div class="overflow-x-auto max-h-[300px] overflow-y-auto">
+                        <table class="w-full data-table text-left border-collapse">
+                            <thead class="sticky top-0 bg-slate-900 z-10">
+                                <tr>
+                                    <th>Harmonic (\(n\))</th>
+                                    <th>Frequency Ratio</th>
+                                    <th>\(a_n\) Coefficient (Cos)</th>
+                                    <th>\(b_n\) Coefficient (Sin)</th>
+                                    <th>Rel. Amplitude</th>
+                                </tr>
+                            </thead>
+                            <tbody id="harmonic-rows">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('stage');
+        const ctx = canvas.getContext('2d');
+        const nSlider = document.getElementById('n-slider');
+        const nDisplay = document.getElementById('n-val');
+        const diagList = document.getElementById('diagnostics');
+        const statusEl = document.getElementById('status-desc');
+        const progressFill = document.getElementById('progress-fill');
+        const errorEl = document.getElementById('error-pct');
+        const tableBody = document.getElementById('harmonic-rows');
+
+        let nTerms = 7;
+        let time = 0;
+        let mode = 'both';
+        let useSin = true;
+        let useCos = false;
+        let isAnimating = true;
+        let waveDataTop = [];
+        let waveDataMid = [];
+        let waveDataBottom = [];
+
+        function setMode(m) {
+            mode = m;
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-${m}`).classList.add('active');
+            
+            // Adjust label and block visibility based on mode
+            const isForward = (m === 'forward' || m === 'both');
+            const isBackward = (m === 'backward' || m === 'both');
+
+            document.getElementById('lbl-source').style.opacity = isForward ? '1' : '0.1';
+            document.getElementById('lbl-encoder').style.opacity = isForward ? '1' : '0.1';
+            document.getElementById('lbl-decoder').style.opacity = isBackward ? '1' : '0.1';
+            
+            document.getElementById('box-source').style.background = isForward ? 'rgba(16, 185, 129, 0.03)' : 'transparent';
+            document.getElementById('box-encoder').style.background = isForward ? 'rgba(56, 189, 248, 0.03)' : 'transparent';
+            document.getElementById('box-decoder').style.background = isBackward ? 'rgba(251, 191, 36, 0.03)' : 'transparent';
+            
+            waveDataTop = []; waveDataMid = []; waveDataBottom = [];
+        }
+
+        function updateComps() {
+            useCos = document.getElementById('check-cos').checked;
+            useSin = document.getElementById('check-sin').checked;
+            waveDataTop = []; waveDataMid = []; waveDataBottom = [];
+        }
+
+        function toggleAnim() {
+            isAnimating = !isAnimating;
+            document.getElementById('play-btn').innerText = isAnimating ? 'Pause Engine' : 'Resume Engine';
+            document.getElementById('play-btn').classList.toggle('bg-white', isAnimating);
+            document.getElementById('play-btn').classList.toggle('bg-sky-500', !isAnimating);
+        }
+
+        function draw() {
+            if (!isAnimating) { requestAnimationFrame(draw); return; }
+
+            canvas.width = canvas.parentElement.clientWidth;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            nTerms = parseInt(nSlider.value);
+            nDisplay.innerText = nTerms;
+
+            const splitH = canvas.height / 3;
+            const centerX = 160;
+            const waveStartX = centerX + 120;
+            
+            // Grid and boundaries
+            ctx.strokeStyle = '#0f172a';
+            ctx.beginPath();
+            for(let i=0; i<canvas.width; i+=40) { ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); }
+            for(let i=0; i<canvas.height; i+=40) { ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); }
+            ctx.stroke();
+
+            ctx.setLineDash([5, 10]);
+            ctx.strokeStyle = '#1e293b';
+            ctx.beginPath(); 
+            ctx.moveTo(0, splitH); ctx.lineTo(canvas.width, splitH);
+            ctx.moveTo(0, splitH * 2); ctx.lineTo(canvas.width, splitH * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            let tableHTML = "";
+            let sy = splitH / 2;
+            let my = splitH + splitH / 2;
+            let dy = splitH * 2 + splitH / 2;
+
+            // 1. Source Signal (Stage 1)
+            if (mode === 'forward' || mode === 'both') {
+                const sourceAmp = (Math.sin(time) > 0 ? 1 : -1) * 75;
+                waveDataTop.unshift(sy + sourceAmp);
+                ctx.strokeStyle = '#10b981'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(waveStartX, sy + sourceAmp);
+                for(let i=0; i<waveDataTop.length; i++) ctx.lineTo(waveStartX+i, waveDataTop[i]); ctx.stroke();
+                ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.arc(centerX, sy+sourceAmp, 5, 0, Math.PI*2); ctx.fill();
+            }
+
+            // 2 & 3. Encoder/Decoder (Stages 2 & 3)
+            let tx = centerX, ty = my;
+            let rx = centerX, ry = dy;
+
+            for (let i = 0; i < nTerms; i++) {
+                let n = i * 2 + 1;
+                let radius = 75 * (4 / (n * Math.PI));
+                let angle = n * time;
+
+                let vx = 0, vy = 0;
+                let an = 0, bn = 0;
+
+                if (useSin && !useCos) {
+                    vy = radius * Math.sin(angle);
+                    bn = (4 / (n * Math.PI)).toFixed(4);
+                } else if (useCos && !useSin) {
+                    vy = radius * Math.cos(angle);
+                    an = (4 / (n * Math.PI)).toFixed(4);
+                } else if (useCos && useSin) {
+                    vx = (radius/Math.sqrt(2)) * Math.cos(angle);
+                    vy = (radius/Math.sqrt(2)) * Math.sin(angle);
+                    an = (2.82 / (n * Math.PI)).toFixed(4);
+                    bn = (2.82 / (n * Math.PI)).toFixed(4);
+                }
+
+                // Encoder Circles (Stage 2)
+                if (mode === 'forward' || mode === 'both') {
+                    ctx.strokeStyle = `rgba(56, 189, 248, ${0.7 - (i/nTerms)*0.5})`;
+                    ctx.beginPath(); ctx.arc(tx, ty, Math.abs(radius), 0, Math.PI * 2); ctx.stroke();
+                    tx += vx; ty += vy;
+                    ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.moveTo(tx - vx, ty - vy); ctx.lineTo(tx, ty); ctx.stroke();
+                }
+
+                // Decoder Circles (Stage 3)
+                if (mode === 'backward' || mode === 'both') {
+                    ctx.strokeStyle = `rgba(251, 191, 36, ${0.7 - (i/nTerms)*0.5})`;
+                    ctx.beginPath(); ctx.arc(rx, ry, Math.abs(radius), 0, Math.PI * 2); ctx.stroke();
+                    rx += vx; ry += vy;
+                }
+
+                tableHTML += `<tr><td class="text-sky-400 font-bold">${n}</td><td>${n}f₀</td><td>${an}</td><td>${bn}</td><td>${(100/n).toFixed(1)}%</td></tr>`;
+            }
+
+            if (mode === 'forward' || mode === 'both') waveDataMid.unshift(ty);
+            if (mode === 'backward' || mode === 'both') waveDataBottom.unshift(ry);
+
+            const maxLen = canvas.width - waveStartX;
+            if (waveDataTop.length > maxLen) waveDataTop.pop();
+            if (waveDataMid.length > maxLen) waveDataMid.pop();
+            if (waveDataBottom.length > maxLen) waveDataBottom.pop();
+
+            // Waves rendering
+            ctx.lineWidth = 2;
+            if (mode === 'forward' || mode === 'both') {
+                ctx.strokeStyle = '#38bdf8'; ctx.beginPath(); ctx.moveTo(waveStartX, ty);
+                for(let i=0; i<waveDataMid.length; i++) ctx.lineTo(waveStartX+i, waveDataMid[i]); ctx.stroke();
+            }
+            if (mode === 'backward' || mode === 'both') {
+                ctx.strokeStyle = '#fbbf24'; ctx.beginPath(); ctx.moveTo(waveStartX, ry);
+                for(let i=0; i<waveDataBottom.length; i++) ctx.lineTo(waveStartX+i, waveDataBottom[i]); ctx.stroke();
+            }
+
+            // Data Transmission Pulse
+            if (mode === 'both') {
+                const pulseT = (Date.now() % 3000) / 3000;
+                ctx.fillStyle = '#10b981'; ctx.shadowBlur = 10; ctx.shadowColor = '#10b981';
+                ctx.beginPath(); ctx.arc(waveStartX - 30, sy + (dy-sy)*pulseT, 6, 0, Math.PI*2); ctx.fill();
+                ctx.shadowBlur = 0;
+            }
+
+            tableBody.innerHTML = tableHTML;
+            const convergence = (1 - (1/nTerms)) * 100;
+            diagList.innerHTML = `<div>> MODE: ${mode.toUpperCase()}</div><div>> HARMONICS: ${nTerms}</div><div>> CONVERGENCE: ${convergence.toFixed(1)}%</div>`;
+            errorEl.innerText = `Convergence: ${convergence.toFixed(1)}%`;
+            progressFill.style.width = convergence + "%";
+            statusEl.innerText = mode === 'both' ? "Syncing Cycle..." : (mode === 'forward' ? "Encoding..." : "Decoding...");
+
+            time -= 0.025;
+            requestAnimationFrame(draw);
+        }
+        
+        // Initial setup for highlights
+        window.onload = () => {
+            setMode('both');
+            draw();
+        };
+    </script>
+</body>
+</html>
